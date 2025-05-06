@@ -1,0 +1,17 @@
+# Python general
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Streamlit secrets
+.streamlit/secrets.toml
+
+# Environment variables
+.env
+
+# IDE settings files
+.vscode/
+.idea/
+
+# OS-specific files
+.DS_Store 
