@@ -87,7 +87,10 @@ Link Inclusion Targets (numbers): Internal Links: [TARGET_NUMBER_INTERNAL_LINKS]
 4.  Keyword Integration: Naturally integrate [PRIMARY_KEYWORD] and [SECONDARY_KEYWORDS_LIST]. AVOID STUFFING.
 5.  HTML Structure: Use ONLY `<p>`, `<h2>`, `<h3>`, `<ul>`, `<li>`, `<strong>`, `<em>`, `<a href="URL">Anchor</a>`. Structure: Intro, 2-4 H2 sections (with H3s/lists), Conclusion.
 6.  Internal Links: Include [TARGET_NUMBER_INTERNAL_LINKS]. CRITICAL: ONLY use URLs from "Approved Internal URLs List". Anchor text natural, descriptive (3-7 words), relevant.
-7.  External Links: If [TARGET_NUMBER_EXTERNAL_LINKS] > 0, MAY include up to that many. CRITICAL: ONLY use URLs from "Approved External URLs List". Only if high value (stats, regs). Anchor descriptive. NO competitors.
+7.  External Links: Aim to include [TARGET_NUMBER_EXTERNAL_LINKS] external links if the target is greater than 0.
+    CRITICAL: Prioritize using URLs from the "Approved External URLs List" provided.
+    If highly relevant, authoritative, non-competitive external links are needed beyond this list to meet the target or significantly enhance the article's value (e.g., for recent statistics, official non-commercial resources), you MAY source them.
+    ALL external links, whether from the approved list or newly sourced, MUST add significant, direct value to the reader. Avoid generic links. Ensure anchor text is descriptive and natural. Absolutely NO links to competitor websites.
 8.  Quality & Accuracy: Factually accurate, current, helpful. No fabricated info. Original.
 Output Instructions: Output ONLY raw HTML for article body. NO `<html>`, `<head>`, `<body>` tags. NO MARKDOWN FENCES (```html). No other text/labels/preambles.
     """
@@ -387,8 +390,8 @@ with tab_main_app:
         st.session_state.seo_summary = st.text_area("SEO Best Practices Summary:", value=st.session_state.seo_summary, height=120, key="seo_summary_text_area")
 
         st.subheader("⛓️ Link Generation Targets")
-        st.session_state.target_internal_links = st.number_input("Target # Internal Links:", 0, 10, st.session_state.target_internal_links, key="target_int_links_input")
-        st.session_state.target_external_links = st.number_input("Target # External Links:", 0, 5, st.session_state.target_external_links, key="target_ext_links_input")
+        st.session_state.target_internal_links = st.number_input("Target # Internal Links:", 0, 30, st.session_state.target_internal_links, key="target_int_links_input")
+        st.session_state.target_external_links = st.number_input("Target # External Links:", 0, 15, st.session_state.target_external_links, key="target_ext_links_input")
 
     with col_prompts_editor:
         st.header("🔧 Prompt Engineering Zone")
