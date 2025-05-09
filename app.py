@@ -1,6 +1,8 @@
 import streamlit as st
 import google.generativeai as genai
 import os
+import openai # Added
+import anthropic # Added
 import csv
 import time
 import pandas as pd
@@ -12,9 +14,11 @@ from datetime import datetime # For naming config files
 # For local development, create a .streamlit/secrets.toml file with:
 # GEMINI_API_KEY = "YOUR_API_KEY"
 GEMINI_API_KEY = st.secrets.get("GEMINI_API_KEY", os.getenv("GEMINI_API_KEY"))
+OPENAI_API_KEY = st.secrets.get("OPENAI_API_KEY", os.getenv("OPENAI_API_KEY")) # Added
+ANTHROPIC_API_KEY = st.secrets.get("ANTHROPIC_API_KEY", os.getenv("ANTHROPIC_API_KEY")) # Added
 
 # --- DEFAULT VALUES (Bastian can override in UI / load from config) ---
-DEFAULT_MODEL_NAME = "gemini-2.0-flash" # Corrected
+DEFAULT_MODEL_NAME = "gemini-2.5-pro-exp-03-25" # Updated default to suggested experimental model
 DEFAULT_TOPICS_KEYWORDS_CSV_STRING = """topic_input,primary_keyword,secondary_keywords
 how to hire baristas,hire baristas,"barista hiring process, qualities of a good barista, interview questions for baristas"
 how to hire line cooks,hire line cooks,"line cook job duties, kitchen staffing, culinary team building"
@@ -153,31 +157,135 @@ def load_config_from_dict(config_dict):
     st.session_state.config_loaded_successfully = True
 
 # --- GEMINI API INTERACTION FUNCTION ---
-def generate_content_with_gemini(prompt_text, model_name, temperature, retries=3, delay_seconds=5):
-    if not GEMINI_API_KEY: st.error("GEMINI_API_KEY not configured."); return "ERROR: API Key missing."
-    try:
-        genai.configure(api_key=GEMINI_API_KEY)
-        model = genai.GenerativeModel(model_name)
-        generation_config = genai.types.GenerationConfig(temperature=temperature)
-        safety_settings = [
-            {"category": "HARM_CATEGORY_HARASSMENT", "threshold": "BLOCK_MEDIUM_AND_ABOVE"},
-            {"category": "HARM_CATEGORY_HATE_SPEECH", "threshold": "BLOCK_MEDIUM_AND_ABOVE"},
-            {"category": "HARM_CATEGORY_SEXUALLY_EXPLICIT", "threshold": "BLOCK_MEDIUM_AND_ABOVE"},
-            {"category": "HARM_CATEGORY_DANGEROUS_CONTENT", "threshold": "BLOCK_MEDIUM_AND_ABOVE"},
-        ]
-        for attempt in range(retries):
-            try:
-                response = model.generate_content(prompt_text, generation_config=generation_config, safety_settings=safety_settings)
-                if response.candidates and response.candidates[0].content.parts: return response.text.strip()
-                else:
-                    fb = response.prompt_feedback; reason = fb.block_reason if fb else "Unknown"
-                    st.warning(f"Response empty/blocked. Reason: {reason}"); return f"ERROR: Blocked - {reason}"
-            except Exception as e:
-                st.error(f"API Error (Attempt {attempt+1}): {e}")
-                if attempt < retries - 1: time.sleep(delay_seconds * (attempt + 1))
-                else: return f"ERROR: API call failed - {e}"
-        return "ERROR: Max retries."
-    except Exception as e: st.error(f"Gemini Config/Setup Error: {e}"); return f"ERROR: Setup - {e}"
+def generate_content(prompt_text, model_name, temperature, retries=3, delay_seconds=5):
+    st.write(f"Attempting to generate content with model: {model_name}, Temperature: {temperature}")
+
+    if "gemini" in model_name:
+        if not GEMINI_API_KEY: 
+            st.error("GEMINI_API_KEY not configured.")
+            st.write("Error: GEMINI_API_KEY not configured.")
+            return "ERROR: API Key missing."
+        try:
+            st.write(f"Configuring Gemini with API key: {'*' * (len(GEMINI_API_KEY) - 4) + GEMINI_API_KEY[-4:] if GEMINI_API_KEY else 'Not Set'}")
+            genai.configure(api_key=GEMINI_API_KEY)
+            model = genai.GenerativeModel(model_name)
+            generation_config = genai.types.GenerationConfig(temperature=temperature)
+            safety_settings = [
+                {"category": "HARM_CATEGORY_HARASSMENT", "threshold": "BLOCK_MEDIUM_AND_ABOVE"},
+                {"category": "HARM_CATEGORY_HATE_SPEECH", "threshold": "BLOCK_MEDIUM_AND_ABOVE"},
+                {"category": "HARM_CATEGORY_SEXUALLY_EXPLICIT", "threshold": "BLOCK_MEDIUM_AND_ABOVE"},
+                {"category": "HARM_CATEGORY_DANGEROUS_CONTENT", "threshold": "BLOCK_MEDIUM_AND_ABOVE"},
+            ]
+            for attempt in range(retries):
+                try:
+                    st.write(f"Gemini API call attempt {attempt + 1}")
+                    response = model.generate_content(prompt_text, generation_config=generation_config, safety_settings=safety_settings)
+                    if response.candidates and response.candidates[0].content.parts:
+                        generated_text = response.text.strip()
+                        st.write(f"Gemini response successful: {generated_text[:100]}...")
+                        return generated_text
+                    else:
+                        fb = response.prompt_feedback
+                        reason = fb.block_reason if fb else "Unknown"
+                        st.warning(f"Gemini response empty/blocked. Reason: {reason}")
+                        st.write(f"Gemini response empty/blocked. Reason: {reason}, Attempt: {attempt+1}")
+                        if attempt < retries - 1: time.sleep(delay_seconds * (attempt + 1))
+                        else: return f"ERROR: Blocked - {reason}"
+                except Exception as e:
+                    st.error(f"Gemini API Error (Attempt {attempt+1}): {e}")
+                    st.write(f"Gemini API Error (Attempt {attempt+1}): {e}")
+                    if attempt < retries - 1: time.sleep(delay_seconds * (attempt + 1))
+                    else: return f"ERROR: API call failed - {e}"
+            st.write("Gemini max retries reached.")
+            return "ERROR: Max retries."
+        except Exception as e:
+            st.error(f"Gemini Config/Setup Error: {e}")
+            st.write(f"Gemini Config/Setup Error: {e}")
+            return f"ERROR: Setup - {e}"
+
+    elif "gpt" in model_name:
+        if not OPENAI_API_KEY:
+            st.error("OPENAI_API_KEY not configured.")
+            st.write("Error: OPENAI_API_KEY not configured.")
+            return "ERROR: API Key missing."
+        try:
+            st.write(f"Configuring OpenAI with API key: {'*' * (len(OPENAI_API_KEY) - 4) + OPENAI_API_KEY[-4:] if OPENAI_API_KEY else 'Not Set'}")
+            client = openai.OpenAI(api_key=OPENAI_API_KEY)
+            for attempt in range(retries):
+                try:
+                    st.write(f"OpenAI API call attempt {attempt + 1}")
+                    response = client.chat.completions.create(
+                        model=model_name,
+                        messages=[{"role": "user", "content": prompt_text}],
+                        temperature=temperature
+                    )
+                    if response.choices and response.choices[0].message.content:
+                        generated_text = response.choices[0].message.content.strip()
+                        st.write(f"OpenAI response successful: {generated_text[:100]}...")
+                        return generated_text
+                    else:
+                        st.warning("OpenAI response empty.")
+                        st.write(f"OpenAI response empty. Attempt: {attempt+1}")
+                        if attempt < retries - 1: time.sleep(delay_seconds * (attempt + 1))
+                        else: return "ERROR: OpenAI response empty after retries."
+                except Exception as e:
+                    st.error(f"OpenAI API Error (Attempt {attempt+1}): {e}")
+                    st.write(f"OpenAI API Error (Attempt {attempt+1}): {e}")
+                    if attempt < retries - 1: time.sleep(delay_seconds * (attempt + 1))
+                    else: return f"ERROR: API call failed - {e}"
+            st.write("OpenAI max retries reached.")
+            return "ERROR: Max retries."
+        except Exception as e:
+            st.error(f"OpenAI Config/Setup Error: {e}")
+            st.write(f"OpenAI Config/Setup Error: {e}")
+            return f"ERROR: Setup - {e}"
+
+    elif "claude" in model_name:
+        if not ANTHROPIC_API_KEY:
+            st.error("ANTHROPIC_API_KEY not configured.")
+            st.write("Error: ANTHROPIC_API_KEY not configured.")
+            return "ERROR: API Key missing."
+        try:
+            st.write(f"Configuring Anthropic with API key: {'*' * (len(ANTHROPIC_API_KEY) - 4) + ANTHROPIC_API_KEY[-4:] if ANTHROPIC_API_KEY else 'Not Set'}")
+            client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
+            for attempt in range(retries):
+                try:
+                    st.write(f"Anthropic API call attempt {attempt + 1}")
+                    response = client.messages.create(
+                        model=model_name,
+                        max_tokens=2000,
+                        temperature=temperature,
+                        messages=[
+                            {
+                                "role": "user",
+                                "content": prompt_text
+                            }
+                        ]
+                    )
+                    if response.content and isinstance(response.content, list) and response.content[0].text:
+                        generated_text = response.content[0].text.strip()
+                        st.write(f"Anthropic response successful: {generated_text[:100]}...")
+                        return generated_text
+                    else:
+                        st.warning("Anthropic response empty or not in expected format.")
+                        st.write(f"Anthropic response empty. Attempt: {attempt+1}, Response: {response}")
+                        if attempt < retries - 1: time.sleep(delay_seconds * (attempt + 1))
+                        else: return "ERROR: Anthropic response empty/invalid after retries."
+                except Exception as e:
+                    st.error(f"Anthropic API Error (Attempt {attempt+1}): {e}")
+                    st.write(f"Anthropic API Error (Attempt {attempt+1}): {e}")
+                    if attempt < retries - 1: time.sleep(delay_seconds * (attempt + 1))
+                    else: return f"ERROR: API call failed - {e}"
+            st.write("Anthropic max retries reached.")
+            return "ERROR: Max retries."
+        except Exception as e:
+            st.error(f"Anthropic Config/Setup Error: {e}")
+            st.write(f"Anthropic Config/Setup Error: {e}")
+            return f"ERROR: Setup - {e}"
+    else:
+        st.error(f"Unsupported model provider for model: {model_name}")
+        st.write(f"Error: Unsupported model provider for model: {model_name}")
+        return "ERROR: Unsupported model provider."
 
 # --- UI LAYOUT ---
 st.set_page_config(layout="wide", page_title="AI SEO Content Engine - Full Control")
@@ -201,10 +309,18 @@ with tab_instructions:
 
     st.subheader("1. Initial Setup (First Time & Key Management)")
     st.markdown("""
-    - **API Key:** This application requires a Gemini API Key.
-        - **Local Use:** Ensure you have a `.streamlit/secrets.toml` file in the same directory as `app.py` with your `GEMINI_API_KEY = "YOUR_KEY"`.
-        - **Deployed (e.g., Vercel):** The API key must be set as an environment variable named `GEMINI_API_KEY` on the hosting platform.
-    - **If the API key is missing, the app won't be able to generate content.**
+    - **API Keys:** This application requires API Keys for the selected LLM provider.
+        - **Gemini:** `GEMINI_API_KEY`
+        - **OpenAI:** `OPENAI_API_KEY`
+        - **Anthropic:** `ANTHROPIC_API_KEY`
+    - **Local Use:** Ensure you have a `.streamlit/secrets.toml` file in the same directory as `app.py` with your keys, e.g.:
+      ```toml
+      GEMINI_API_KEY = "YOUR_GEMINI_KEY"
+      OPENAI_API_KEY = "YOUR_OPENAI_KEY"
+      ANTHROPIC_API_KEY = "YOUR_ANTHROPIC_KEY"
+      ```
+    - **Deployed (e.g., Vercel):** The API keys must be set as environment variables (e.g., `GEMINI_API_KEY`, `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`) on the hosting platform.
+    - **If an API key for the selected model provider is missing, the app won't be able to generate content with that provider.**
     """)
 
     st.subheader("2. Configuration Management (Sidebar 🛠️)")
@@ -221,7 +337,7 @@ with tab_instructions:
 
     st.subheader("3. Global Settings (Sidebar 🛠️)")
     st.markdown("""
-    - **Select Gemini Model:** Choose the AI model (e.g., `gemini-2.0-flash`). 'Flash' is faster and cheaper, 'Pro' is more powerful but slower/costlier.
+    - **Select Model:** Choose the AI model from the dropdown. This list includes models from Gemini, OpenAI, and Anthropic.
     - **LLM Temperature:** Controls AI creativity.
         - `0.0 - 0.3`: More factual, predictable, less creative. Good for constrained tasks.
         - `0.4 - 0.7`: Balanced (default is `0.6`).
@@ -320,16 +436,16 @@ with tab_main_app:
                 st.session_state.active_config_name = uploaded_config_file.name
                 st.success(f"Configuration '{uploaded_config_file.name}' loaded! UI elements reflecting new settings.")
                 time.sleep(0.1)
-                st.experimental_rerun() 
+                st.rerun()
             except Exception as e:
                 st.error(f"Error loading configuration file: {e}")
         
         st.markdown("---")
         # Directly update session state from widget
         st.session_state.model_name = st.selectbox(
-            "Select Gemini Model:",
-            [DEFAULT_MODEL_NAME, "gemini-2.0-flash", "gemini-pro"], # Corrected model list
-            index=[DEFAULT_MODEL_NAME, "gemini-2.0-flash", "gemini-pro"].index(st.session_state.model_name), # Use current session_state value
+            "Select Model:", # Changed label
+            ["gemini-2.5-pro-exp-03-25", "gpt-4.1", "claude-3-7-sonnet-20250219"], # Updated model list
+            index=["gemini-2.5-pro-exp-03-25", "gpt-4.1", "claude-3-7-sonnet-20250219"].index(st.session_state.model_name if st.session_state.model_name in ["gemini-2.5-pro-exp-03-25", "gpt-4.1", "claude-3-7-sonnet-20250219"] else "gemini-2.5-pro-exp-03-25"), # Updated index logic
             key="model_selector"
         )
         st.session_state.llm_temperature = st.slider(
@@ -466,13 +582,27 @@ with tab_main_app:
                 fmt_prompt = fmt_prompt.replace("[APPROVED_EXTERNAL_LINKS_TEXT]", st.session_state.approved_external_links)
                 fmt_prompt = fmt_prompt.replace("[TARGET_NUMBER_INTERNAL_LINKS]", str(st.session_state.target_internal_links))
                 fmt_prompt = fmt_prompt.replace("[TARGET_NUMBER_EXTERNAL_LINKS]", str(st.session_state.target_external_links))
-                generated_val = generate_content_with_gemini(fmt_prompt, st.session_state.model_name, st.session_state.llm_temperature)
+                generated_val = generate_content(fmt_prompt, st.session_state.model_name, st.session_state.llm_temperature)
                 output_row[field_to_gen] = generated_val
                 if field_to_gen == "main_text_html" and isinstance(generated_val, str):
-                    ilinks = [url.split(":")[0].strip() for url in st.session_state.approved_internal_links.splitlines() if url.strip()]
-                    elinks = [url.split(":")[0].strip() for url in st.session_state.approved_external_links.splitlines() if url.strip()]
-                    output_row["found_internal_links_in_html"] = " | ".join([url for url in ilinks if url in generated_val])
-                    output_row["found_external_links_in_html"] = " | ".join([url for url in elinks if url in generated_val])
+                    # Corrected link detection:
+                    # Extract the full URL part (before the first colon) from the approved lists
+                    approved_internal_urls_full = []
+                    for line in st.session_state.approved_internal_links.splitlines():
+                        if line.strip() and ":" in line:
+                            approved_internal_urls_full.append(line.split(":", 1)[0].strip())
+                    
+                    approved_external_urls_full = []
+                    for line in st.session_state.approved_external_links.splitlines():
+                        if line.strip() and ":" in line:
+                            approved_external_urls_full.append(line.split(":", 1)[0].strip())
+
+                    output_row["found_internal_links_in_html"] = " | ".join(
+                        [url for url in approved_internal_urls_full if url in generated_val]
+                    )
+                    output_row["found_external_links_in_html"] = " | ".join(
+                        [url for url in approved_external_urls_full if url in generated_val]
+                    )
                 time.sleep(0.05) 
             all_generated_data_list.append(output_row)
             progress_bar.progress(current_progress)
