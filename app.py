@@ -351,7 +351,8 @@ with tab_instructions:
         - **Data Editor:** After uploading or if using defaults, you can directly edit the topics, primary keywords, and secondary keywords in the table. You can also add or delete rows.
     - **Approved Link Lists:**
         - **CRITICAL for link quality!** Provide lists of URLs the AI is *allowed* to use.
-        - Format: `https://full.url/path: Brief description of the page` (one entry per line). The AI uses the description to understand context.
+        - Format: `https://full.url/path: Brief description of the page` (one entry per line).
+        - **Important for Parsing:** To ensure links are identified correctly, please **avoid using colons (`:`) within the *Brief description* part of each line.** The system uses the colon to separate the URL from its description.
     - **Core Contextual Data:**
         - **Brand Guidelines:** Tell the AI about Workstream's voice, tone, audience.
         - **SEO Best Practices:** Remind the AI of key SEO principles.
@@ -508,6 +509,11 @@ with tab_main_app:
 
 
         st.subheader("🔗 Approved Link Lists")
+        st.markdown(
+            "Enter one link per line. Format: `URL: Description`\n"
+            "Example: `https://workstream.us/product: Our Product Page`\n"
+            "**Important:** For best results, please avoid using colons (`:`) within the *Description* part of the line."
+        )
         st.session_state.approved_internal_links = st.text_area("Workstream Internal URLs (URL: Description per line):", value=st.session_state.approved_internal_links, height=120, key="internal_links_text_area")
         st.session_state.approved_external_links = st.text_area("Authoritative External URLs (URL: Description per line):", value=st.session_state.approved_external_links, height=100, key="external_links_text_area")
 
@@ -551,36 +557,49 @@ with tab_main_app:
             st.session_state.trigger_generation = True
 
     if 'trigger_generation' in st.session_state and st.session_state.trigger_generation:
+        st.write("DEBUG: Generation process triggered.") # Added logging
         st.session_state.trigger_generation = False # Reset trigger
         
         topics_df_to_process = st.session_state.topics_df.copy() # Use a copy to avoid modifying session state during iteration
         if topics_df_to_process.empty:
             st.warning("No topics to process. Please upload a CSV or add topics in the editor.")
+            st.write("DEBUG: No topics to process. Stopping generation.") # Added logging
             st.stop()
 
+        st.write(f"DEBUG: Run mode: {st.session_state.run_mode}") # Added logging
         if st.session_state.run_mode == "first_only":
             topics_df_to_process = topics_df_to_process.head(1)
             if topics_df_to_process.empty:
-                st.warning("No topics available to test with 'First Topic Only'. Add topics to the editor."); st.stop()
+                st.warning("No topics available to test with 'First Topic Only'. Add topics to the editor."); 
+                st.write("DEBUG: No topics available for 'first_only' mode. Stopping generation.") # Added logging
+                st.stop()
             st.info(f"🧪 Test Mode: Processing only the first topic: '{topics_df_to_process.iloc[0].get('topic_input', 'N/A')}'")
         
+        st.write(f"DEBUG: Number of topics to process: {len(topics_df_to_process)}") # Added logging
         st.info(f"🚀 Starting content generation for {len(topics_df_to_process)} topic(s) using {st.session_state.model_name}...")
         all_generated_data_list = []
         progress_bar = st.progress(0.0)
         status_text_area = st.empty()
         current_prompts = st.session_state.editable_prompts
 
+        st.write("DEBUG: Entering main loop for topics.") # Added logging
         for i, topic_row in enumerate(topics_df_to_process.to_dict(orient='records')):
             current_progress = (i + 1) / len(topics_df_to_process)
             topic_input_val = topic_row.get('topic_input', 'N/A')
             primary_keyword_val = topic_row.get('primary_keyword', '')
             secondary_keywords_val = topic_row.get('secondary_keywords', '')
-            status_text_area.info(f"🔄 Processing: **{topic_input_val}** ({i+1} of {len(topics_df_to_process)})...")
+            st.write(f"DEBUG: Processing topic {i+1}/{len(topics_df_to_process)}: '{topic_input_val}'") # Added logging
+            status_text_area.info(f"🔄 Processing: **{topic_input_val}** ({i+1} of {len(topics_df_to_process)})..." )
             output_row = {"topic_input": topic_input_val,"primary_keyword": primary_keyword_val,"secondary_keywords": secondary_keywords_val}
+            
+            st.write(f"DEBUG: Entering inner loop for fields for topic: '{topic_input_val}'") # Added logging
             for field_to_gen in ["page_title", "meta_description", "h1_tag", "subtitle", "alt_text", "main_text_html"]:
+                st.write(f"DEBUG: Preparing to generate field '{field_to_gen}' for topic '{topic_input_val}'.") # Added logging
                 prompt_template = current_prompts.get(field_to_gen)
                 if not prompt_template:
-                    st.warning(f"Prompt for '{field_to_gen}' missing for '{topic_input_val}'."); output_row[field_to_gen] = "ERROR: No Prompt"; continue
+                    st.warning(f"Prompt for '{field_to_gen}' missing for '{topic_input_val}'."); output_row[field_to_gen] = "ERROR: No Prompt"; 
+                    st.write(f"DEBUG: No prompt for '{field_to_gen}'. Skipping.") # Added logging
+                    continue
                 status_text_area.info(f"🔄 Generating `{field_to_gen}` for: **{topic_input_val}**...")
                 fmt_prompt = prompt_template
                 fmt_prompt = fmt_prompt.replace("[TOPIC_INPUT]", topic_input_val)
@@ -592,20 +611,50 @@ with tab_main_app:
                 fmt_prompt = fmt_prompt.replace("[APPROVED_EXTERNAL_LINKS_TEXT]", st.session_state.approved_external_links)
                 fmt_prompt = fmt_prompt.replace("[TARGET_NUMBER_INTERNAL_LINKS]", str(st.session_state.target_internal_links))
                 fmt_prompt = fmt_prompt.replace("[TARGET_NUMBER_EXTERNAL_LINKS]", str(st.session_state.target_external_links))
+                
+                st.write(f"DEBUG: Calling generate_content for '{field_to_gen}' on topic '{topic_input_val}'.") # Added logging
                 generated_val = generate_content(fmt_prompt, st.session_state.model_name, st.session_state.llm_temperature)
+                st.write(f"DEBUG: Received from generate_content for '{field_to_gen}': {generated_val[:100] if isinstance(generated_val, str) else 'ERROR_OBJECT'}...") # Added logging
+
                 output_row[field_to_gen] = generated_val
                 if field_to_gen == "main_text_html" and isinstance(generated_val, str):
                     # Corrected link detection:
                     # Extract the full URL part (before the first colon) from the approved lists
                     approved_internal_urls_full = []
                     for line in st.session_state.approved_internal_links.splitlines():
-                        if line.strip() and ":" in line:
-                            approved_internal_urls_full.append(line.split(":", 1)[0].strip())
+                        line_content = line.strip()
+                        if line_content and ":" in line_content: # Ensure there's a colon
+                            url_to_add = ""
+                            # Try to split by ": " first (colon followed by space)
+                            parts_by_colon_space = line_content.split(": ", 1)
+                            if len(parts_by_colon_space) == 2:
+                                url_to_add = parts_by_colon_space[0].strip()
+                            else:
+                                # Fallback: if ": " not found or doesn't split cleanly, use rsplit on just ":"
+                                parts_by_last_colon = line_content.rsplit(":", 1)
+                                if parts_by_last_colon: # Should be true if ":" is in line_content
+                                    url_to_add = parts_by_last_colon[0].strip()
+                            
+                            if url_to_add:
+                                approved_internal_urls_full.append(url_to_add)
                     
                     approved_external_urls_full = []
                     for line in st.session_state.approved_external_links.splitlines():
-                        if line.strip() and ":" in line:
-                            approved_external_urls_full.append(line.split(":", 1)[0].strip())
+                        line_content = line.strip()
+                        if line_content and ":" in line_content: # Ensure there's a colon
+                            url_to_add = ""
+                            # Try to split by ": " first (colon followed by space)
+                            parts_by_colon_space = line_content.split(": ", 1)
+                            if len(parts_by_colon_space) == 2:
+                                url_to_add = parts_by_colon_space[0].strip()
+                            else:
+                                # Fallback: if ": " not found or doesn't split cleanly, use rsplit on just ":"
+                                parts_by_last_colon = line_content.rsplit(":", 1)
+                                if parts_by_last_colon: # Should be true if ":" is in line_content
+                                    url_to_add = parts_by_last_colon[0].strip()
+                            
+                            if url_to_add:
+                                approved_external_urls_full.append(url_to_add)
 
                     output_row["found_internal_links_in_html"] = " | ".join(
                         [url for url in approved_internal_urls_full if url in generated_val]
