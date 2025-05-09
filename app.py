@@ -429,16 +429,26 @@ with tab_main_app:
                 st.error(f"Error preparing config for download: {e}")
 
         uploaded_config_file = st.file_uploader("📂 Load Configuration from JSON File", type=["json"], key="config_uploader")
-        if uploaded_config_file is not None:
+        
+        # Initialize flag in session state if it doesn't exist
+        if 'config_just_processed' not in st.session_state:
+            st.session_state.config_just_processed = False
+
+        if uploaded_config_file is not None and not st.session_state.config_just_processed:
             try:
                 config_data = json.load(uploaded_config_file)
                 load_config_from_dict(config_data) # This function now updates session_state
                 st.session_state.active_config_name = uploaded_config_file.name
                 st.success(f"Configuration '{uploaded_config_file.name}' loaded! UI elements reflecting new settings.")
-                time.sleep(0.1)
+                st.session_state.config_just_processed = True # Set flag to True after processing
+                time.sleep(0.1) # Small delay might sometimes help with state updates before rerun
                 st.rerun()
             except Exception as e:
                 st.error(f"Error loading configuration file: {e}")
+                st.session_state.config_just_processed = False # Reset flag on error to allow re-attempt
+        elif uploaded_config_file is None and st.session_state.config_just_processed:
+            # Reset the flag if no file is currently uploaded, allowing next upload to be processed
+            st.session_state.config_just_processed = False
         
         st.markdown("---")
         # Directly update session state from widget
